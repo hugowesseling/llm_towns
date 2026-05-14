@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -21,17 +23,17 @@ class Planner:
 
     llm_brain: Optional[LLMBrain] = None
 
-    def create_plan(self, villager: Villager, goal: Goal, current_tick: int) -> Plan:
+    def create_plan(self, villager: Villager, goal: Goal, current_tick: int, scheduler: Optional['SimulationScheduler'] = None) -> Plan:
         if self.llm_brain:
             try:
-                return self._create_plan_from_llm(villager, goal, current_tick)
+                return self._create_plan_from_llm(villager, goal, current_tick, scheduler)
             except Exception:
                 # Fallback to deterministic plan generation if LLM fails.
                 pass
 
-        return self._create_fallback_plan(villager, goal, current_tick)
+        return self._create_fallback_plan(villager, goal, current_tick, scheduler)
 
-    def _create_plan_from_llm(self, villager: Villager, goal: Goal, current_tick: int) -> Plan:
+    def _create_plan_from_llm(self, villager: Villager, goal: Goal, current_tick: int, scheduler: Optional['SimulationScheduler'] = None) -> Plan:
         villager_summary = villager.summary()
         context = {
             "tick": current_tick,
@@ -58,7 +60,7 @@ class Planner:
         plan = Plan(actor_id=villager.id, goal_id=goal.id, created_tick=current_tick, last_reviewed_tick=current_tick)
         actions = plan_data.get("actions", [])
         for action_payload in actions:
-            action = self._parse_action_payload(villager, action_payload)
+            action = self._parse_action_payload(villager, action_payload, scheduler)
             if action is not None:
                 plan.enqueue_action(action)
 
@@ -68,16 +70,16 @@ class Planner:
         plan.actions[0].state = ActionState.READY
         return plan
 
-    def _create_fallback_plan(self, villager: Villager, goal: Goal, current_tick: int) -> Plan:
+    def _create_fallback_plan(self, villager: Villager, goal: Goal, current_tick: int, scheduler: Optional['SimulationScheduler'] = None) -> Plan:
         plan = Plan(actor_id=villager.id, goal_id=goal.id, created_tick=current_tick, last_reviewed_tick=current_tick)
         description = goal.description.lower()
 
         if "food" in description or "hunger" in description:
-            plan.enqueue_action(self._build_walk_action(villager, "market"))
+            plan.enqueue_action(self._build_walk_action(villager, "market", scheduler))
             plan.enqueue_action(self._build_action(villager, "trade", duration=6, metadata={"purpose": "buy food"}))
-            plan.enqueue_action(self._build_walk_action(villager, "home"))
+            plan.enqueue_action(self._build_walk_action(villager, "home", scheduler))
         elif "social" in description or "talk" in description:
-            plan.enqueue_action(self._build_walk_action(villager, "square"))
+            plan.enqueue_action(self._build_walk_action(villager, "square", scheduler))
             plan.enqueue_action(self._build_action(villager, "chat", duration=5, metadata={"purpose": "socialize"}))
         else:
             plan.enqueue_action(self._build_action(villager, "idle", duration=3, metadata={"purpose": "stand by"}))
@@ -86,7 +88,7 @@ class Planner:
             plan.actions[0].state = ActionState.READY
         return plan
 
-    def _parse_action_payload(self, villager: Villager, payload: Dict[str, Any]) -> Optional[Action]:
+    def _parse_action_payload(self, villager: Villager, payload: Dict[str, Any], scheduler: Optional['SimulationScheduler'] = None) -> Optional[Action]:
         if not isinstance(payload, dict):
             return None
 
@@ -115,7 +117,7 @@ class Planner:
             metadata=metadata or {},
         )
 
-    def _build_walk_action(self, villager: Villager, destination: str) -> Action:
+    def _build_walk_action(self, villager: Villager, destination: str, scheduler: Optional['SimulationScheduler'] = None) -> Action:
         return Action(
             actor_id=villager.id,
             type="walk",

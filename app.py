@@ -17,6 +17,7 @@ import time
 from llm.brain import LLMBrain, OpenAIChatClient
 from llm.prompts import build_goal_prompt
 from simulation.actions import Goal
+from simulation.market import Market
 from simulation.planner import Planner
 from simulation.scheduler import SimulationScheduler
 from simulation.villager import Position, Villager
@@ -42,8 +43,12 @@ def _create_default_world() -> None:
         profession="Merchant",
         position=Position(x=5, y=5),
     )
+    villager.inventory.add("gold", 10)
     scheduler.add_villager(villager)
     scheduler.add_goal(Goal(actor_id=villager.id, description="Acquire food", priority=5, created_tick=0))
+
+    market = Market(id="market_1", position=(10, 10), inventory={"food": 20}, prices={"food": 2.0})
+    scheduler.add_market(market)
 
 _create_default_world()
 

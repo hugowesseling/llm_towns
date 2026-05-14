@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+import heapq
 
 from .actions import ActionState, Goal, Plan
 from .decision import DecisionLayer, should_run_layer
@@ -20,9 +21,90 @@ class SimulationScheduler:
     current_tick: int = 0
     event_log: List[Dict[str, object]] = field(default_factory=list)
     llm_brain: Optional[LLMBrain] = None
+    markets: Dict[str, 'Market'] = field(default_factory=dict)
+    world_grid: List[List[int]] = field(default_factory=lambda: [[0 for _ in range(20)] for _ in range(20)])  # 0=free, 1=obstacle
+
+    def add_market(self, market: 'Market') -> None:
+        self.markets[market.id] = market
 
     def add_villager(self, villager: Villager) -> None:
         self.villagers[villager.id] = villager
+
+    def find_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
+        """Simple A* pathfinding on grid."""
+        def heuristic(a, b):
+            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+        open_set = []
+        heapq.heappush(open_set, (0, start))
+        came_from = {}
+        g_score = {start: 0}
+        f_score = {start: heuristic(start, goal)}
+
+        while open_set:
+            _, current = heapq.heappop(open_set)
+            if current == goal:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return path
+
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                neighbor = (current[0] + dx, current[1] + dy)
+                if 0 <= neighbor[0] < len(self.world_grid) and 0 <= neighbor[1] < len(self.world_grid[0]):
+                    if self.world_grid[neighbor[0]][neighbor[1]] == 1:  # Obstacle
+                        continue
+                    tentative_g = g_score[current] + 1
+                    if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                        came_from[neighbor] = current
+                        g_score[neighbor] = tentative_g
+                        f_score[neighbor] = tentative_g + heuristic(neighbor, goal)
+                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        return []  # No path
+
+    def is_position_free(self, pos: Tuple[int, int], exclude_villager_id: Optional[str] = None) -> bool:
+        for vid, v in self.villagers.items():
+            if vid != exclude_villager_id and (v.position.x, v.position.y) == pos:
+                return False
+        return True
+
+    def execute_action(self, action: Action) -> None:
+        villager = self.villagers.get(action.actor_id)
+        if not villager:
+            return
+
+        if action.type == "walk":
+            destination = action.metadata.get("destination")
+            if isinstance(destination, str):
+                # Assume named destinations; for now, use market position
+                if destination == "market" and "market_1" in self.markets:
+                    dest_pos = self.markets["market_1"].position
+                else:
+                    dest_pos = (villager.position.x + 1, villager.position.y)  # Default move
+                path = self.find_path((villager.position.x, villager.position.y), dest_pos)
+                if path and len(path) > 0:
+                    next_pos = path[0]
+                    if self.move_villager(villager, next_pos):
+                        action.metadata["path"] = path[1:]  # Update remaining path
+                    else:
+                        action.state = ActionState.BLOCKED
+        elif action.type == "trade":
+            if "market_1" in self.markets:
+                market = self.markets["market_1"]
+                if villager.position.x == market.position[0] and villager.position.y == market.position[1]:
+                    # Buy food if needed
+                    if market.buy_item(villager, "food", 1):
+                        self.event_log.append({
+                            "tick": self.current_tick,
+                            "event": "trade_completed",
+                            "villager_id": villager.id,
+                            "item": "food",
+                            "quantity": 1,
+                        })
+                    else:
+                        action.state = ActionState.FAILED
 
     def get_villager(self, villager_id: str) -> Optional[Villager]:
         return self.villagers.get(villager_id)
@@ -52,7 +134,7 @@ class SimulationScheduler:
         if not goal:
             return
 
-        plan = self.planner.create_plan(villager, goal, self.current_tick)
+        plan = self.planner.create_plan(villager, goal, self.current_tick, self)
         self.plans[plan.id] = plan
         villager.current_plan_id = plan.id
         self.event_log.append({
@@ -86,6 +168,10 @@ class SimulationScheduler:
                 })
                 villager.current_plan_id = None
                 villager.current_goal_id = None
+            else:
+                current_action = plan.get_current_action()
+                if current_action and current_action.state == ActionState.RUNNING:
+                    self.execute_action(current_action)
 
             # Check if villager needs a new goal
             if villager.is_idle() and should_run_layer(DecisionLayer.REFLECTIVE, self.current_tick, villager.cognition.last_reflective_tick):
