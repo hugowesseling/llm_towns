@@ -189,16 +189,68 @@ class LLMBrain:
             **kwargs,
         )
 
-    def generate_goal(self, prompt: str, **kwargs: Any) -> str:
-        return self.chat(
-            system="You are an assistant that suggests structured villager goals.",
-            user=prompt,
+    def create_chat_json(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Any:
+        return self.client.chat_json(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
             **kwargs,
         )
 
-    def generate_plan(self, prompt: str, **kwargs: Any) -> str:
+    def generate_goal(self, system: str, user: str, **kwargs: Any) -> str:
         return self.chat(
-            system="You are an assistant that converts a villager goal into a deterministic action plan.",
-            user=prompt,
+            system=system,
+            user=user,
+            **kwargs,
+        )
+
+    def generate_goal_json(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Any:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        return self.create_chat_json(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+
+    def generate_plan(self, system: str, user: str, **kwargs: Any) -> str:
+        return self.chat(
+            system=system,
+            user=user,
+            **kwargs,
+        )
+
+    def generate_plan_json(
+        self,
+        system: str,
+        user: str,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Any:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        return self.create_chat_json(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
             **kwargs,
         )

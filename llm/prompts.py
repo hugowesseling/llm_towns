@@ -3,13 +3,17 @@ from typing import Dict, List
 SYSTEM_GOAL_PROMPT = (
     "You are a village simulation assistant. Provide a single short goal for the villager "
     "based on their current state, needs, and nearby context. Return only a JSON object "
-    "with keys: goal, priority, and rationale."
+    "with keys: goal, priority, and rationale. Do not include any markdown or explanatory text. "
+    "Example output:\n" +
+    "{\"goal\": \"Acquire food\", \"priority\": 5, \"rationale\": \"The villager is hungry and has low food stores.\"}"
 )
 
 SYSTEM_PLAN_PROMPT = (
     "You are a village planning assistant. Create a deterministic plan for the given goal. "
     "Return only a JSON object with keys: goal, actions, and notes. Each action should include "
-    "type, duration_ticks, target, and metadata."
+    "type, duration_ticks, target, and metadata. Do not include markdown or extra text. "
+    "Example output:\n" +
+    "{\"goal\": \"Acquire food\", \"actions\": [{\"type\": \"walk\", \"duration_ticks\": 10, \"target\": \"market\", \"metadata\": {\"purpose\": \"travel\"}}], \"notes\": \"Simple market-run plan.\"}"
 )
 
 

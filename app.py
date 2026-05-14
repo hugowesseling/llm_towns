@@ -12,13 +12,24 @@ from flask import Flask, request, jsonify
 from typing import Dict, List, Any
 import json
 
+from llm.brain import LLMBrain, OpenAIChatClient
+from llm.prompts import build_goal_prompt
 from simulation.actions import Goal
+from simulation.planner import Planner
 from simulation.scheduler import SimulationScheduler
 from simulation.villager import Position, Villager
 
 app = Flask(__name__)
 
-scheduler = SimulationScheduler()
+llm_brain = None
+try:
+    llm_client = OpenAIChatClient()
+    llm_brain = LLMBrain(llm_client)
+    planner = Planner(llm_brain=llm_brain)
+except ValueError:
+    planner = Planner()
+
+scheduler = SimulationScheduler(planner=planner)
 
 # Bootstrap a small default villager and goal.
 def _create_default_world() -> None:
@@ -242,6 +253,52 @@ def get_villager_summary(villager_id: str):
         return jsonify({"status": "error", "message": "Villager not found"}), 404
 
     return jsonify({"status": "success", "data": villager.summary()})
+
+
+@app.route('/api/villager/<villager_id>/suggest-goal', methods=['POST'])
+def suggest_villager_goal(villager_id: str):
+    """Ask the LLM for a suggested goal for a villager."""
+    villager = scheduler.get_villager(villager_id)
+    if villager is None:
+        return jsonify({"status": "error", "message": "Villager not found"}), 404
+
+    if scheduler.planner.llm_brain is None:
+        return jsonify({"status": "error", "message": "LLM not configured"}), 503
+
+    data = request.get_json() or {}
+    extra_context = data.get("context", {})
+    if not isinstance(extra_context, dict):
+        return jsonify({"status": "error", "message": "Context must be a JSON object"}), 400
+
+    context = {
+        "tick": scheduler.current_tick,
+        "position": {"x": villager.position.x, "y": villager.position.y},
+        "needs": {
+            "hunger": villager.needs.hunger,
+            "energy": villager.needs.energy,
+            "social": villager.needs.social,
+        },
+        "inventory": villager.inventory.items,
+        "relationships": villager.relationships,
+        "current_goal_id": villager.current_goal_id,
+        "current_plan_id": villager.current_plan_id,
+        **extra_context,
+    }
+
+    messages = build_goal_prompt(villager.summary(), context)
+    try:
+        goal_data = scheduler.planner.llm_brain.create_chat_json(
+            messages=messages,
+            temperature=0.5,
+            max_tokens=200,
+        )
+    except Exception as exc:
+        return jsonify({"status": "error", "message": "LLM goal suggestion failed", "detail": str(exc)}), 502
+
+    if not isinstance(goal_data, dict):
+        return jsonify({"status": "error", "message": "LLM returned unexpected format"}), 502
+
+    return jsonify({"status": "success", "data": goal_data})
 
 
 # Actions endpoints
