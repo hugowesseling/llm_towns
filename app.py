@@ -12,7 +12,27 @@ from flask import Flask, request, jsonify
 from typing import Dict, List, Any
 import json
 
+from simulation.actions import Goal
+from simulation.scheduler import SimulationScheduler
+from simulation.villager import Position, Villager
+
 app = Flask(__name__)
+
+scheduler = SimulationScheduler()
+
+# Bootstrap a small default villager and goal.
+def _create_default_world() -> None:
+    villager = Villager(
+        id="char_1",
+        name="Alice",
+        town="town_1",
+        profession="Merchant",
+        position=Position(x=5, y=5),
+    )
+    scheduler.add_villager(villager)
+    scheduler.add_goal(Goal(actor_id=villager.id, description="Acquire food", priority=5, created_tick=0))
+
+_create_default_world()
 
 # Simple in-memory data structures
 world_data = {
@@ -163,6 +183,65 @@ def add_character_history(char_id: str):
         "status": "success",
         "data": characters[char_id]
     })
+
+
+# Simulation endpoints
+@app.route('/api/sim/status', methods=['GET'])
+def get_simulation_status():
+    """Return the current simulation snapshot."""
+    return jsonify({
+        "status": "success",
+        "data": scheduler.snapshot()
+    })
+
+
+@app.route('/api/sim/tick', methods=['POST'])
+def tick_simulation():
+    """Advance the simulation by one or more ticks."""
+    data = request.get_json() or {}
+    count = int(data.get('count', 1))
+    if count < 1:
+        return jsonify({"status": "error", "message": "Count must be at least 1"}), 400
+
+    scheduler.advance_tick(count)
+    return jsonify({
+        "status": "success",
+        "tick": scheduler.current_tick,
+        "data": scheduler.snapshot()
+    })
+
+
+@app.route('/api/villager/<villager_id>/goal', methods=['POST'])
+def assign_villager_goal(villager_id: str):
+    """Assign a new goal to a villager."""
+    villager = scheduler.get_villager(villager_id)
+    if villager is None:
+        return jsonify({"status": "error", "message": "Villager not found"}), 404
+
+    data = request.get_json() or {}
+    description = data.get('description')
+    priority = int(data.get('priority', 1))
+    if not description:
+        return jsonify({"status": "error", "message": "Goal description required"}), 400
+
+    goal = Goal(actor_id=villager_id, description=description, priority=priority, created_tick=scheduler.current_tick)
+    scheduler.add_goal(goal)
+    return jsonify({"status": "success", "goal": {
+        "id": goal.id,
+        "description": goal.description,
+        "priority": goal.priority,
+        "actor_id": goal.actor_id,
+    }})
+
+
+@app.route('/api/villager/<villager_id>/summary', methods=['GET'])
+def get_villager_summary(villager_id: str):
+    """Get the current summary of a simulation villager."""
+    villager = scheduler.get_villager(villager_id)
+    if villager is None:
+        return jsonify({"status": "error", "message": "Villager not found"}), 404
+
+    return jsonify({"status": "success", "data": villager.summary()})
 
 
 # Actions endpoints
