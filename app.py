@@ -21,6 +21,7 @@ from simulation.market import Market
 from simulation.planner import Planner
 from simulation.scheduler import SimulationScheduler
 from simulation.villager import Position, Villager
+from world.world_generator import World, WorldGenerator
 
 app = Flask(__name__)
 
@@ -32,22 +33,56 @@ try:
 except ValueError:
     planner = Planner()
 
-scheduler = SimulationScheduler(planner=planner, llm_brain=llm_brain)
+scheduler = SimulationScheduler(planner=planner, llm_brain=llm_brain, world=world)
 
-# Bootstrap a small default villager and goal.
-def _create_default_world() -> None:
-    villager = Villager(
-        id="char_1",
-        name="Alice",
-        town="town_1",
-        profession="Merchant",
-        position=Position(x=5, y=5),
-    )
-    villager.inventory.add("gold", 10)
-    scheduler.add_villager(villager)
-    scheduler.add_goal(Goal(actor_id=villager.id, description="Acquire food", priority=5, created_tick=0))
+# Generate world using LLM
+world_generator = WorldGenerator(llm_brain=llm_brain)
+world = world_generator.generate_world(width=50, height=50)
 
-    market = Market(id="market_1", position=(10, 10), inventory={"food": 20}, prices={"food": 2.0})
+# Bootstrap villagers and markets from generated world
+def _create_world_entities() -> None:
+    # Create villagers for the first town
+    if world.towns:
+        first_town_id = list(world.towns.keys())[0]
+        town = world.towns[first_town_id]
+        villagers_data = world_generator.generate_villagers_for_town(town, count=3)
+
+        for villager_data in villagers_data:
+            villager = Villager(
+                id=villager_data["id"],
+                name=villager_data["name"],
+                town=villager_data["town"],
+                profession=villager_data["profession"],
+                position=Position(x=villager_data["position"][0], y=villager_data["position"][1]),
+            )
+            villager.needs.hunger = villager_data["needs"]["hunger"]
+            villager.needs.energy = villager_data["needs"]["energy"]
+            villager.needs.social = villager_data["needs"]["social"]
+            villager.inventory.add("gold", villager_data["inventory"]["gold"])
+            scheduler.add_villager(villager)
+
+            # Give each villager an initial goal
+            goal = Goal(
+                actor_id=villager.id,
+                description="Explore the town",
+                priority=3,
+                created_tick=0
+            )
+            scheduler.add_goal(goal)
+
+    # Create a market in the town center
+    if world.towns:
+        first_town = list(world.towns.values())[0]
+        market = Market(
+            id="market_1",
+            position=(first_town.position[0] + first_town.width // 2,
+                     first_town.position[1] + first_town.height // 2),
+            inventory={"food": 50, "wood": 30, "tools": 10},
+            prices={"food": 2.0, "wood": 1.5, "tools": 5.0}
+        )
+        scheduler.add_market(market)
+
+_create_world_entities()
     scheduler.add_market(market)
 
 _create_default_world()
@@ -61,54 +96,23 @@ def _simulation_loop() -> None:
 simulation_thread = threading.Thread(target=_simulation_loop, daemon=True)
 simulation_thread.start()
 
-# Simple in-memory data structures
-world_data = {
-    "width": 10,
-    "height": 10,
-    "grid": [[1 if (i + j) % 2 == 0 else 0 for j in range(10)] for i in range(10)]
-}
-
-towns = {
-    "town_1": {
-        "name": "Riverford",
-        "position": (2, 2),
-        "width": 20,
-        "height": 20,
-        "grid": [[0 for _ in range(20)] for _ in range(20)]
-    }
-}
-
-characters = {
-    "char_1": {
-        "id": "char_1",
-        "name": "Alice",
-        "town": "town_1",
-        "position": (5, 5),
-        "occupation": "Merchant",
-        "wants": ["Gold", "Knowledge"],
-        "relationships": {"char_2": "Friend"},
-        "history": ["Arrived at town", "Met Bob"]
-    },
-    "char_2": {
-        "id": "char_2",
-        "name": "Bob",
-        "town": "town_1",
-        "position": (6, 6),
-        "occupation": "Blacksmith",
-        "wants": ["Ore", "Recognition"],
-        "relationships": {"char_1": "Friend"},
-        "history": ["Started at forge", "Met Alice"]
-    }
-}
-
 
 # World endpoints
 @app.route('/api/world', methods=['GET'])
 def get_world():
-    """Get the world overview (2D grid where towns occupy blocks)."""
+    """Get the world overview."""
     return jsonify({
         "status": "success",
-        "data": world_data
+        "data": {
+            "name": world.name,
+            "description": world.description,
+            "width": world.width,
+            "height": world.height,
+            "climate": world.climate,
+            "era": world.era,
+            "towns": list(world.towns.keys()),
+            "terrain_features": list(world.terrain_features.keys()),
+        }
     })
 
 
@@ -117,44 +121,81 @@ def get_world_dimensions():
     """Get world dimensions."""
     return jsonify({
         "status": "success",
-        "width": world_data["width"],
-        "height": world_data["height"]
+        "width": world.width,
+        "height": world.height
+    })
+
+
+@app.route('/api/world/grid', methods=['GET'])
+def get_world_grid():
+    """Get the world terrain grid."""
+    return jsonify({
+        "status": "success",
+        "grid": world.grid,
+        "legend": {
+            0: "grass",
+            1: "forest",
+            2: "water",
+            3: "mountain"
+        }
     })
 
 
 # Town endpoints
 @app.route('/api/town/<town_id>', methods=['GET'])
 def get_town(town_id: str):
-    """Get town-level details including layout and objects."""
-    if town_id not in towns:
+    """Get town-level details."""
+    if town_id not in world.towns:
         return jsonify({"status": "error", "message": "Town not found"}), 404
     
-    town = towns[town_id]
+    town = world.towns[town_id]
     return jsonify({
         "status": "success",
-        "data": town
+        "data": {
+            "id": town.id,
+            "name": town.name,
+            "position": town.position,
+            "width": town.width,
+            "height": town.height,
+            "description": town.description,
+            "buildings": town.buildings,
+            "population": town.population,
+            "economy": town.economy,
+            "culture": town.culture,
+        }
     })
 
 
 @app.route('/api/towns', methods=['GET'])
 def list_towns():
     """List all towns."""
+    towns_data = []
+    for town in world.towns.values():
+        towns_data.append({
+            "id": town.id,
+            "name": town.name,
+            "position": town.position,
+            "description": town.description,
+            "population": town.population,
+        })
+    
     return jsonify({
         "status": "success",
-        "data": list(towns.values())
+        "data": towns_data
     })
 
 
 # Character endpoints
 @app.route('/api/character/<char_id>', methods=['GET'])
 def get_character(char_id: str):
-    """Get character details including wants, relationships, and history."""
-    if char_id not in characters:
+    """Get character details."""
+    villager = scheduler.get_villager(char_id)
+    if villager is None:
         return jsonify({"status": "error", "message": "Character not found"}), 404
     
     return jsonify({
         "status": "success",
-        "data": characters[char_id]
+        "data": villager.summary()
     })
 
 
@@ -163,52 +204,54 @@ def list_characters():
     """List all characters."""
     town_id = request.args.get('town')
     
-    if town_id:
-        # Filter by town
-        filtered = [c for c in characters.values() if c.get('town') == town_id]
-        return jsonify({
-            "status": "success",
-            "data": filtered
-        })
+    characters_data = []
+    for villager in scheduler.villagers.values():
+        if town_id and villager.town != town_id:
+            continue
+        characters_data.append(villager.summary())
     
     return jsonify({
         "status": "success",
-        "data": list(characters.values())
+        "data": characters_data
     })
 
 
 @app.route('/api/character/<char_id>', methods=['PUT'])
 def update_character(char_id: str):
-    """Update character details."""
-    if char_id not in characters:
+    """Update character details (limited support for generated villagers)."""
+    villager = scheduler.get_villager(char_id)
+    if villager is None:
         return jsonify({"status": "error", "message": "Character not found"}), 404
     
     data = request.get_json()
-    characters[char_id].update(data)
+    # Only allow updating relationships for now
+    if "relationships" in data:
+        villager.relationships.update(data["relationships"])
     
     return jsonify({
         "status": "success",
-        "data": characters[char_id]
+        "data": villager.summary()
     })
 
 
 @app.route('/api/character/<char_id>/history', methods=['POST'])
 def add_character_history(char_id: str):
-    """Add an event to character history."""
-    if char_id not in characters:
+    """Add an event to character history (stored in villager memories)."""
+    villager = scheduler.get_villager(char_id)
+    if villager is None:
         return jsonify({"status": "error", "message": "Character not found"}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     event = data.get('event')
     
     if not event:
         return jsonify({"status": "error", "message": "Event not provided"}), 400
     
-    characters[char_id]['history'].append(event)
+    villager.memories.append(event)
     
     return jsonify({
         "status": "success",
-        "data": characters[char_id]
+        "data": villager.summary()
     })
 
 
@@ -308,26 +351,34 @@ def suggest_villager_goal(villager_id: str):
 # Actions endpoints
 @app.route('/api/character/<char_id>/possible-actions', methods=['GET'])
 def get_possible_actions(char_id: str):
-    """Get possible actions for a character based on adjacent squares."""
-    if char_id not in characters:
+    """Get possible actions for a character based on nearby entities."""
+    villager = scheduler.get_villager(char_id)
+    if villager is None:
         return jsonify({"status": "error", "message": "Character not found"}), 404
     
-    char = characters[char_id]
-    x, y = char['position']
-    town = towns[char['town']]
+    x, y = villager.position.x, villager.position.y
     
-    # Find adjacent characters
-    adjacent_chars = [
-        c for cid, c in characters.items()
-        if cid != char_id and c['town'] == char['town']
-        and abs(c['position'][0] - x) <= 1 and abs(c['position'][1] - y) <= 1
-    ]
+    # Find adjacent villagers
+    adjacent_villagers = []
+    for vid, v in scheduler.villagers.items():
+        if vid != char_id and abs(v.position.x - x) <= 1 and abs(v.position.y - y) <= 1:
+            adjacent_villagers.append({"id": v.id, "name": v.name})
+    
+    # Find nearby markets
+    nearby_markets = []
+    for mid, market in scheduler.markets.items():
+        if abs(market.position[0] - x) <= 2 and abs(market.position[1] - y) <= 2:
+            nearby_markets.append({"id": mid, "name": f"Market at {market.position}"})
     
     possible_actions = {
         "movement": ["north", "south", "east", "west"],
         "interactions": [
-            {"type": "talk", "target": c['id'], "name": c['name']} 
-            for c in adjacent_chars
+            {"type": "talk", "target": v["id"], "name": v["name"]} 
+            for v in adjacent_villagers
+        ],
+        "trading": [
+            {"type": "trade", "target": m["id"], "name": m["name"]}
+            for m in nearby_markets
         ],
         "objects": ["pick_up", "drop", "use"]
     }
@@ -375,7 +426,8 @@ def interact():
 @app.route('/api/character/<char_id>/move', methods=['POST'])
 def move_character(char_id: str):
     """Move a character to a new position."""
-    if char_id not in characters:
+    villager = scheduler.get_villager(char_id)
+    if villager is None:
         return jsonify({"status": "error", "message": "Character not found"}), 404
     
     data = request.get_json()
@@ -385,10 +437,10 @@ def move_character(char_id: str):
     if new_x is None or new_y is None:
         return jsonify({"status": "error", "message": "Position not provided"}), 400
     
-    char = characters[char_id]
-    old_pos = char['position']
-    char['position'] = (new_x, new_y)
-    char['history'].append(f"Moved from {old_pos} to ({new_x}, {new_y})")
+    old_pos = (villager.position.x, villager.position.y)
+    villager.position.x = new_x
+    villager.position.y = new_y
+    villager.memories.append(f"Moved from {old_pos} to ({new_x}, {new_y})")
     
     return jsonify({
         "status": "success",

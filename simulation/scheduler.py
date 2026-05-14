@@ -10,6 +10,7 @@ from .planner import Planner
 from .villager import Villager
 from llm.brain import LLMBrain
 from llm.prompts import build_goal_prompt
+from world.world_generator import World
 
 
 @dataclass
@@ -22,7 +23,7 @@ class SimulationScheduler:
     event_log: List[Dict[str, object]] = field(default_factory=list)
     llm_brain: Optional[LLMBrain] = None
     markets: Dict[str, 'Market'] = field(default_factory=dict)
-    world_grid: List[List[int]] = field(default_factory=lambda: [[0 for _ in range(20)] for _ in range(20)])  # 0=free, 1=obstacle
+    world: Optional[World] = None
 
     def add_market(self, market: 'Market') -> None:
         self.markets[market.id] = market
@@ -31,7 +32,10 @@ class SimulationScheduler:
         self.villagers[villager.id] = villager
 
     def find_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
-        """Simple A* pathfinding on grid."""
+        """Simple A* pathfinding on world grid."""
+        if not self.world:
+            return []  # No world, no path
+
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
@@ -53,9 +57,7 @@ class SimulationScheduler:
 
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 neighbor = (current[0] + dx, current[1] + dy)
-                if 0 <= neighbor[0] < len(self.world_grid) and 0 <= neighbor[1] < len(self.world_grid[0]):
-                    if self.world_grid[neighbor[0]][neighbor[1]] == 1:  # Obstacle
-                        continue
+                if self.world.is_walkable(neighbor[0], neighbor[1]):
                     tentative_g = g_score[current] + 1
                     if neighbor not in g_score or tentative_g < g_score[neighbor]:
                         came_from[neighbor] = current

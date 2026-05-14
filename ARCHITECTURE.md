@@ -143,15 +143,19 @@ The system gracefully degrades when LLM services are unavailable, falling back t
 - Used by scheduler for goal suggestions
 - Receives prompt messages from `prompts.py` builders
 
-### llm/prompts.py - Prompt Engineering
+### world/world_generator.py - World Generation
 
-**Purpose**: Constructs LLM prompts for goal and plan generation.
+**Purpose**: LLM-driven world creation system for generating terrain, towns, and initial world state.
 
 **Key Behaviors**:
-- Defines system prompts for goal and plan generation tasks
-- Builds user messages with villager state and simulation context
-- Ensures consistent JSON response formats from LLM
+- Uses LLM to generate world metadata (name, description, climate, era)
+- Procedurally places terrain features (forests, mountains, rivers) on world grid
+- Generates towns with buildings, population, economy, and culture
+- Creates initial villager populations for towns
+- Updates world grid with terrain obstacles and walkable areas
 
 **Interactions**:
-- Called by scheduler and planner to build prompt messages
-- Provides structured context (villager summary, current state) to LLM
+- Called by app.py during world initialization instead of hardcoded world data
+- Uses `LLMBrain` for creative world description generation
+- Provides `World` object to scheduler for pathfinding and collision detection
+- Generates `Town` and villager data consumed by simulation entities
