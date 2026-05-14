@@ -11,6 +11,8 @@ Provides endpoints for:
 from flask import Flask, request, jsonify
 from typing import Dict, List, Any
 import json
+import threading
+import time
 
 from llm.brain import LLMBrain, OpenAIChatClient
 from llm.prompts import build_goal_prompt
@@ -44,6 +46,15 @@ def _create_default_world() -> None:
     scheduler.add_goal(Goal(actor_id=villager.id, description="Acquire food", priority=5, created_tick=0))
 
 _create_default_world()
+
+# Background simulation thread
+def _simulation_loop() -> None:
+    while True:
+        scheduler.advance_tick(1)
+        time.sleep(1)  # Advance one tick per second
+
+simulation_thread = threading.Thread(target=_simulation_loop, daemon=True)
+simulation_thread.start()
 
 # Simple in-memory data structures
 world_data = {
@@ -202,24 +213,12 @@ def get_simulation_status():
     """Return the current simulation snapshot."""
     return jsonify({
         "status": "success",
-        "data": scheduler.snapshot()
+        "data": scheduler.snapshot(),
+        "running": True,  # Simulation runs autonomously
     })
 
 
-@app.route('/api/sim/tick', methods=['POST'])
-def tick_simulation():
-    """Advance the simulation by one or more ticks."""
-    data = request.get_json() or {}
-    count = int(data.get('count', 1))
-    if count < 1:
-        return jsonify({"status": "error", "message": "Count must be at least 1"}), 400
-
-    scheduler.advance_tick(count)
-    return jsonify({
-        "status": "success",
-        "tick": scheduler.current_tick,
-        "data": scheduler.snapshot()
-    })
+# Removed /api/sim/tick as simulation now runs automatically
 
 
 @app.route('/api/villager/<villager_id>/goal', methods=['POST'])
