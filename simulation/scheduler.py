@@ -4,8 +4,11 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from .actions import ActionState, Goal, Plan
+from .decision import DecisionLayer, should_run_layer
 from .planner import Planner
 from .villager import Villager
+from llm.brain import LLMBrain
+from llm.prompts import build_goal_prompt
 
 
 @dataclass
@@ -16,6 +19,7 @@ class SimulationScheduler:
     plans: Dict[str, Plan] = field(default_factory=dict)
     current_tick: int = 0
     event_log: List[Dict[str, object]] = field(default_factory=list)
+    llm_brain: Optional[LLMBrain] = None
 
     def add_villager(self, villager: Villager) -> None:
         self.villagers[villager.id] = villager
@@ -82,6 +86,59 @@ class SimulationScheduler:
                 })
                 villager.current_plan_id = None
                 villager.current_goal_id = None
+
+            # Check if villager needs a new goal
+            if villager.is_idle() and should_run_layer(DecisionLayer.REFLECTIVE, self.current_tick, villager.cognition.last_reflective_tick):
+                self._assign_new_goal(villager)
+                villager.cognition.last_reflective_tick = self.current_tick
+
+    def _assign_new_goal(self, villager: Villager) -> None:
+        if self.llm_brain is None:
+            # Fallback: assign a default goal
+            goal = Goal(actor_id=villager.id, description="Idle and reflect", priority=1, created_tick=self.current_tick)
+            self.add_goal(goal)
+            return
+
+        context = {
+            "tick": self.current_tick,
+            "position": {"x": villager.position.x, "y": villager.position.y},
+            "needs": {
+                "hunger": villager.needs.hunger,
+                "energy": villager.needs.energy,
+                "social": villager.needs.social,
+            },
+            "inventory": villager.inventory.items,
+            "relationships": villager.relationships,
+            "current_goal_id": villager.current_goal_id,
+            "current_plan_id": villager.current_plan_id,
+        }
+
+        messages = build_goal_prompt(villager.summary(), context)
+        try:
+            goal_data = self.llm_brain.create_chat_json(
+                messages=messages,
+                temperature=0.5,
+                max_tokens=200,
+            )
+            if isinstance(goal_data, dict) and "goal" in goal_data:
+                goal = Goal(
+                    actor_id=villager.id,
+                    description=goal_data["goal"],
+                    priority=goal_data.get("priority", 1),
+                    created_tick=self.current_tick,
+                )
+                self.add_goal(goal)
+                self.event_log.append({
+                    "tick": self.current_tick,
+                    "event": "goal_auto_assigned",
+                    "villager_id": villager.id,
+                    "goal_id": goal.id,
+                    "description": goal.description,
+                })
+        except Exception:
+            # If LLM fails, assign default goal
+            goal = Goal(actor_id=villager.id, description="Idle and reflect", priority=1, created_tick=self.current_tick)
+            self.add_goal(goal)
 
     def snapshot(self) -> Dict[str, object]:
         return {

@@ -31,7 +31,7 @@ try:
 except ValueError:
     planner = Planner()
 
-scheduler = SimulationScheduler(planner=planner)
+scheduler = SimulationScheduler(planner=planner, llm_brain=llm_brain)
 
 # Bootstrap a small default villager and goal.
 def _create_default_world() -> None:
