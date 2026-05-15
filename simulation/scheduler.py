@@ -9,8 +9,8 @@ from .decision import DecisionLayer, should_run_layer
 from .planner import Planner
 from .villager import Villager
 from llm.brain import LLMBrain
-from llm.prompts import build_goal_prompt
-from world.world_generator import World
+from llm.prompts import build_goal_prompt, build_town_context, build_plan_prompt
+from world.world_generator import World, TerrainTile
 
 
 @dataclass
@@ -72,6 +72,16 @@ class SimulationScheduler:
                 return False
         return True
 
+    def _get_market_for_villager(self, villager: Villager) -> Optional['Market']:
+        """Find the market in the villager's home town."""
+        for mid, m in self.markets.items():
+            if mid == f"market_{villager.town}":
+                return m
+        # Fallback: any market
+        for m in self.markets.values():
+            return m
+        return None
+
     def execute_action(self, action: Action) -> None:
         villager = self.villagers.get(action.actor_id)
         if not villager:
@@ -80,33 +90,78 @@ class SimulationScheduler:
         if action.type == "walk":
             destination = action.metadata.get("destination")
             if isinstance(destination, str):
-                # Assume named destinations; for now, use market position
-                if destination == "market" and "market_1" in self.markets:
-                    dest_pos = self.markets["market_1"].position
+                if destination == "market":
+                    market = self._get_market_for_villager(villager)
+                    if market:
+                        dest_pos = market.position
+                    else:
+                        dest_pos = (villager.position.x + 1, villager.position.y)
+                elif destination == "home":
+                    # Walk toward town center
+                    if self.world and villager.town in self.world.towns:
+                        t = self.world.towns[villager.town]
+                        dest_pos = (t.position[0] + t.width // 2, t.position[1] + t.height // 2)
+                    else:
+                        dest_pos = (villager.position.x + 1, villager.position.y)
+                elif destination == "square":
+                    if self.world and villager.town in self.world.towns:
+                        t = self.world.towns[villager.town]
+                        dest_pos = (t.position[0] + t.width // 2, t.position[1] + t.height // 2)
+                    else:
+                        dest_pos = (villager.position.x + 1, villager.position.y)
                 else:
-                    dest_pos = (villager.position.x + 1, villager.position.y)  # Default move
+                    dest_pos = (villager.position.x + 1, villager.position.y)
                 path = self.find_path((villager.position.x, villager.position.y), dest_pos)
                 if path and len(path) > 0:
                     next_pos = path[0]
                     if self.move_villager(villager, next_pos):
-                        action.metadata["path"] = path[1:]  # Update remaining path
+                        action.metadata["path"] = path[1:]
                     else:
                         action.state = ActionState.BLOCKED
-        elif action.type == "trade":
-            if "market_1" in self.markets:
-                market = self.markets["market_1"]
-                if villager.position.x == market.position[0] and villager.position.y == market.position[1]:
-                    # Buy food if needed
-                    if market.buy_item(villager, "food", 1):
-                        self.event_log.append({
-                            "tick": self.current_tick,
-                            "event": "trade_completed",
-                            "villager_id": villager.id,
-                            "item": "food",
-                            "quantity": 1,
-                        })
+
+        elif action.type == "travel":
+            target_town_id = action.metadata.get("target") or action.metadata.get("destination")
+            if target_town_id and self.world and target_town_id in self.world.towns:
+                target_town = self.world.towns[target_town_id]
+                # Pick the nearest entry point
+                entry = target_town.entry_points.get("south")
+                if entry is None:
+                    entry = (target_town.position[0] + target_town.width // 2,
+                             target_town.position[1] + target_town.height // 2)
+                dest_pos = entry
+                path = self.find_path((villager.position.x, villager.position.y), dest_pos)
+                if path and len(path) > 0:
+                    next_pos = path[0]
+                    if self.move_villager(villager, next_pos):
+                        action.metadata["path"] = path[1:]
                     else:
-                        action.state = ActionState.FAILED
+                        action.state = ActionState.BLOCKED
+                else:
+                    action.state = ActionState.FAILED
+            else:
+                action.state = ActionState.FAILED
+
+        elif action.type == "trade":
+            market = self._get_market_for_villager(villager)
+            if market and villager.position.x == market.position[0] and villager.position.y == market.position[1]:
+                if market.buy_item(villager, "food", 1):
+                    self.event_log.append({
+                        "tick": self.current_tick,
+                        "event": "trade_completed",
+                        "villager_id": villager.id,
+                        "item": "food",
+                        "quantity": 1,
+                    })
+                else:
+                    action.state = ActionState.FAILED
+
+    def move_villager(self, villager: Villager, target: Tuple[int, int]) -> bool:
+        if not self.is_position_free(target, exclude_villager_id=villager.id):
+            return False
+        if self.world and not self.world.is_walkable(target[0], target[1]):
+            return False
+        villager.position.x, villager.position.y = target
+        return True
 
     def get_villager(self, villager_id: str) -> Optional[Villager]:
         return self.villagers.get(villager_id)
@@ -182,10 +237,13 @@ class SimulationScheduler:
 
     def _assign_new_goal(self, villager: Villager) -> None:
         if self.llm_brain is None:
-            # Fallback: assign a default goal
             goal = Goal(actor_id=villager.id, description="Idle and reflect", priority=1, created_tick=self.current_tick)
             self.add_goal(goal)
             return
+
+        town_context = ""
+        if self.world:
+            town_context = build_town_context(villager.town, self.world.towns)
 
         context = {
             "tick": self.current_tick,
@@ -201,7 +259,7 @@ class SimulationScheduler:
             "current_plan_id": villager.current_plan_id,
         }
 
-        messages = build_goal_prompt(villager.summary(), context)
+        messages = build_goal_prompt(villager.summary(), context, town_context=town_context)
         try:
             goal_data = self.llm_brain.create_chat_json(
                 messages=messages,

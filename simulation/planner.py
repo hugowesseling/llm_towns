@@ -8,13 +8,14 @@ from typing import Any, Dict, List, Optional
 from .actions import Action, ActionState, Goal, Plan
 from .villager import Villager
 from llm.brain import LLMBrain
-from llm.prompts import build_plan_prompt
+from llm.prompts import build_plan_prompt, build_town_context
 
 
 @dataclass
 class Planner:
     default_durations: Dict[str, int] = field(default_factory=lambda: {
         "walk": 10,
+        "travel": 30,
         "trade": 6,
         "gather": 8,
         "rest": 20,
@@ -35,6 +36,10 @@ class Planner:
 
     def _create_plan_from_llm(self, villager: Villager, goal: Goal, current_tick: int, scheduler: Optional['SimulationScheduler'] = None) -> Plan:
         villager_summary = villager.summary()
+        town_context = ""
+        if scheduler and scheduler.world:
+            town_context = build_town_context(villager.town, scheduler.world.towns)
+
         context = {
             "tick": current_tick,
             "location": {"x": villager.position.x, "y": villager.position.y},
@@ -47,7 +52,7 @@ class Planner:
             "relationships": villager.relationships,
         }
 
-        messages = build_plan_prompt(goal.__dict__, villager_summary, context)
+        messages = build_plan_prompt(goal.__dict__, villager_summary, context, town_context=town_context)
         plan_data = self.llm_brain.create_chat_json(
             messages=messages,
             temperature=0.5,
@@ -74,7 +79,18 @@ class Planner:
         plan = Plan(actor_id=villager.id, goal_id=goal.id, created_tick=current_tick, last_reviewed_tick=current_tick)
         description = goal.description.lower()
 
-        if "food" in description or "hunger" in description:
+        # Check for travel keywords referencing town names
+        travel_target = None
+        if scheduler and scheduler.world:
+            for tid, t in scheduler.world.towns.items():
+                if tid != villager.town and t.name.lower() in description:
+                    travel_target = tid
+                    break
+
+        if travel_target:
+            plan.enqueue_action(self._build_travel_action(villager, travel_target, scheduler))
+            plan.enqueue_action(self._build_action(villager, "idle", duration=3, metadata={"purpose": "arrived"}))
+        elif "food" in description or "hunger" in description:
             plan.enqueue_action(self._build_walk_action(villager, "market", scheduler))
             plan.enqueue_action(self._build_action(villager, "trade", duration=6, metadata={"purpose": "buy food"}))
             plan.enqueue_action(self._build_walk_action(villager, "home", scheduler))
@@ -123,4 +139,12 @@ class Planner:
             type="walk",
             duration_ticks=self.default_durations.get("walk", 10),
             metadata={"destination": destination},
+        )
+
+    def _build_travel_action(self, villager: Villager, target_town_id: str, scheduler: Optional['SimulationScheduler'] = None) -> Action:
+        return Action(
+            actor_id=villager.id,
+            type="travel",
+            duration_ticks=self.default_durations.get("travel", 30),
+            metadata={"target": target_town_id, "destination": target_town_id},
         )

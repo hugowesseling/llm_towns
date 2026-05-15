@@ -84,6 +84,9 @@ class TerrainTile(int, Enum):
     SNOW = 5
     SWAMP_TERRAIN = 6
     ROAD = 7
+    BUILDING = 8
+    HOUSE = 9
+    TOWN_SQUARE = 10
 
 
 class WeatherType(str, Enum):
@@ -153,6 +156,7 @@ class Town:
     lore: str = ""
     founded_year: int = 0
     relations: Dict[str, str] = field(default_factory=dict)  # town_id -> relationship
+    entry_points: Dict[str, Tuple[int, int]] = field(default_factory=dict)  # north/south/east/west -> (x, y)
 
 
 @dataclass
@@ -198,7 +202,7 @@ class World:
         tile_type = self.get_tile_type(x, y)
         if tile_type == -1:
             return False
-        return tile_type in [0, 1, 4, 5, 6, 7]
+        return tile_type in [0, 1, 4, 5, 6, 7, 10]  # walkable: grass, forest, sand, snow, swamp, road, town_square
 
     def add_terrain_feature(self, feature: TerrainFeature) -> None:
         self.terrain_features[feature.id] = feature
@@ -497,12 +501,14 @@ class WorldGenerator:
             name = random.choice([n for n in town_names_pool if n not in used_names])
             used_names.add(name)
 
+            town_width = random.randint(8, 12)
+            town_height = random.randint(8, 12)
             town = Town(
                 id=f"town_{i}",
                 name=name,
                 position=(tx, ty),
-                width=random.randint(8, 12),
-                height=random.randint(8, 12),
+                width=town_width,
+                height=town_height,
                 description=f"A {'quaint' if grass_count < 50 else 'prosperous' if grass_count > 60 else 'peaceful'} settlement",
                 population=random.randint(80, 500),
                 economy=random.choice(["agricultural", "mercantile", "crafts", "fishing", "mining"]),
@@ -519,7 +525,68 @@ class WorldGenerator:
                 {"type": "bakery", "name": "Golden Crust Bakery"},
             ]
             town.buildings = random.sample(buildings_pool, random.randint(3, 6))
+            self._generate_town_layout(world, town)
             world.add_town(town)
+
+    def _generate_town_layout(self, world: World, town: Town) -> None:
+        """Fill town's bounding box on the world grid with buildings, houses,
+        streets, a central square, and four entry/exit points."""
+        tx, ty = town.position
+        tw, th = town.width, town.height
+
+        cx = tx + tw // 2
+        cy = ty + th // 2
+
+        # Entry points at each side's midpoint
+        entry_points = {
+            "north": (cx, ty),
+            "south": (cx, ty + th - 1),
+            "east": (tx + tw - 1, cy),
+            "west": (tx, cy),
+        }
+        town.entry_points = entry_points
+
+        # Clear town area to grass first
+        for y in range(ty, ty + th):
+            for x in range(tx, tx + tw):
+                if 0 <= x < world.width and 0 <= y < world.height:
+                    if world.is_walkable(x, y):
+                        world.grid[y][x] = TerrainTile.GRASS
+
+        # Draw N-S and E-W main streets (through streets)
+        for y in range(ty, ty + th):
+            if 0 <= cx < world.width and 0 <= y < world.height:
+                world.grid[y][cx] = TerrainTile.ROAD
+        for x in range(tx, tx + tw):
+            if 0 <= x < world.width and 0 <= cy < world.height:
+                world.grid[cy][x] = TerrainTile.ROAD
+
+        # Town square at center (3×3)
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                wx, wy = cx + dx, cy + dy
+                if 0 <= wx < world.width and 0 <= wy < world.height:
+                    world.grid[wy][wx] = TerrainTile.TOWN_SQUARE
+
+        # Place buildings and houses in remaining tiles
+        for y in range(ty, ty + th):
+            for x in range(tx, tx + tw):
+                if not (0 <= x < world.width and 0 <= y < world.height):
+                    continue
+                if world.grid[y][x] in (TerrainTile.ROAD, TerrainTile.TOWN_SQUARE):
+                    continue
+
+                # Distance to nearest edge
+                edge_dist = min(x - tx, tx + tw - 1 - x, y - ty, ty + th - 1 - y)
+                if edge_dist <= 1:
+                    world.grid[y][x] = TerrainTile.BUILDING
+                else:
+                    world.grid[y][x] = TerrainTile.HOUSE
+
+        # Ensure entry points are ROAD tiles
+        for direction, (ex, ey) in entry_points.items():
+            if 0 <= ex < world.width and 0 <= ey < world.height:
+                world.grid[ey][ex] = TerrainTile.ROAD
 
     # ── Town lore (LLM) ─────────────────────────────────────────────────
 
@@ -726,7 +793,8 @@ class WorldGenerator:
     # ── Roads ───────────────────────────────────────────────────────────
 
     def _generate_roads(self, world: World) -> None:
-        """Generate roads connecting towns using a nearest-neighbor approach."""
+        """Generate roads connecting towns using a nearest-neighbor approach.
+        Roads trace between town centers, naturally passing through entry points."""
         town_ids = list(world.towns.keys())
         if len(town_ids) < 2:
             return
@@ -735,13 +803,17 @@ class WorldGenerator:
         unvisited = set(town_ids[1:])
         road_id_counter = 0
 
+        def town_center(tid: str) -> Tuple[int, int]:
+            t = world.towns[tid]
+            return (t.position[0] + t.width // 2, t.position[1] + t.height // 2)
+
         while unvisited:
             current = min(
                 visited,
                 key=lambda c: min(
                     math.sqrt(
-                        (world.towns[c].position[0] - world.towns[t].position[0]) ** 2 +
-                        (world.towns[c].position[1] - world.towns[t].position[1]) ** 2
+                        (town_center(c)[0] - town_center(t)[0]) ** 2 +
+                        (town_center(c)[1] - town_center(t)[1]) ** 2
                     )
                     for t in unvisited
                 )
@@ -749,12 +821,12 @@ class WorldGenerator:
             nearest = min(
                 unvisited,
                 key=lambda t: math.sqrt(
-                    (world.towns[current].position[0] - world.towns[t].position[0]) ** 2 +
-                    (world.towns[current].position[1] - world.towns[t].position[1]) ** 2
+                    (town_center(current)[0] - town_center(t)[0]) ** 2 +
+                    (town_center(current)[1] - town_center(t)[1]) ** 2
                 )
             )
 
-            path = self._trace_road(world, world.towns[current].position, world.towns[nearest].position)
+            path = self._trace_road(world, town_center(current), town_center(nearest))
             road = Road(
                 id=f"road_{road_id_counter}",
                 name=f"{world.towns[current].name} - {world.towns[nearest].name} Road",
@@ -766,9 +838,9 @@ class WorldGenerator:
             )
             world.roads.append(road)
 
-            # Mark road tiles on grid
+            # Mark road tiles on grid (overwrite anything except water/mountain)
             for rx, ry in path:
-                if world.get_tile_type(rx, ry) != 2 and world.get_tile_type(rx, ry) != 3:
+                if world.get_tile_type(rx, ry) not in (2, 3):
                     world.grid[ry][rx] = TerrainTile.ROAD.value
 
             visited.add(nearest)
@@ -800,7 +872,6 @@ class WorldGenerator:
             # Avoid impassable terrain
             if 0 <= cx < world.width and 0 <= cy < world.height:
                 if world.get_tile_type(cx, cy) == 2:  # water
-                    # Try to go around
                     if world.get_tile_type(cx, cy - 1) != 2:
                         cy -= 1
                     elif world.get_tile_type(cx, cy + 1) != 2:
@@ -815,7 +886,7 @@ class WorldGenerator:
 
     # ── Villagers ───────────────────────────────────────────────────────
 
-    def generate_villagers_for_town(self, town: Town, count: int = 5) -> List[Dict[str, Any]]:
+    def generate_villagers_for_town(self, world: World, town: Town, count: int = 5) -> List[Dict[str, Any]]:
         """Generate villagers for a specific town."""
         villagers = []
         professions_by_economy = {
@@ -840,15 +911,31 @@ class WorldGenerator:
         ]
 
         for i in range(count):
+            # Spawn on walkable tiles within the town (streets or square)
+            walkable_spots = []
+            for y in range(town.position[1], town.position[1] + town.height):
+                for x in range(town.position[0], town.position[0] + town.width):
+                    if 0 <= x < world.width and 0 <= y < world.height:
+                        tt = world.get_tile_type(x, y)
+                        if tt in (TerrainTile.ROAD, TerrainTile.TOWN_SQUARE):
+                            # Check not already occupied by a spawned villager
+                            occupied = any(
+                                v["position"] == (x, y) for v in villagers
+                            )
+                            if not occupied:
+                                walkable_spots.append((x, y))
+            if not walkable_spots:
+                px = town.position[0] + town.width // 2
+                py = town.position[1] + town.height // 2
+            else:
+                px, py = random.choice(walkable_spots)
+
             villager = {
                 "id": f"{town.id}_villager_{i}",
                 "name": f"{random.choice(first_names)} {random.choice(last_names)}",
                 "town": town.id,
                 "profession": random.choice(professions),
-                "position": (
-                    town.position[0] + random.randint(0, max(town.width - 1, 1)),
-                    town.position[1] + random.randint(0, max(town.height - 1, 1)),
-                ),
+                "position": (px, py),
                 "needs": {
                     "hunger": random.randint(30, 70),
                     "energy": random.randint(50, 90),

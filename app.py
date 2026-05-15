@@ -12,6 +12,8 @@ Provides endpoints for:
 from flask import Flask, request, jsonify
 from typing import Dict, List, Any
 import json
+import math
+import random
 import threading
 import time
 
@@ -49,7 +51,7 @@ def _create_world_entities() -> None:
 
     # Create villagers for each town
     for town_id, town in world.towns.items():
-        villagers_data = world_generator.generate_villagers_for_town(town, count=3)
+        villagers_data = world_generator.generate_villagers_for_town(world, town, count=3)
         for villager_data in villagers_data:
             villager = Villager(
                 id=villager_data["id"],
@@ -166,6 +168,9 @@ def get_world_grid():
             5: "snow",
             6: "swamp",
             7: "road",
+            8: "building",
+            9: "house",
+            10: "town_square",
         },
     })
 
@@ -218,6 +223,7 @@ def get_town(town_id: str):
             "economy": town.economy,
             "culture": town.culture,
             "relations": town.relations,
+            "entry_points": town.entry_points,
         },
     })
 
@@ -549,6 +555,22 @@ def get_possible_actions(char_id: str):
                 "danger_level": poi.danger_level,
             })
 
+    # Travel options to other towns
+    travel_options = []
+    for town_id, town in world.towns.items():
+        if town_id != villager.town:
+            road_conn = any(
+                r for r in world.roads
+                if (r.start_town == villager.town and r.end_town == town_id) or
+                   (r.end_town == villager.town and r.start_town == town_id)
+            )
+            if road_conn:
+                travel_options.append({
+                    "type": "travel",
+                    "target": town_id,
+                    "name": town.name,
+                })
+
     possible_actions = {
         "movement": ["north", "south", "east", "west"],
         "interactions": [
@@ -563,6 +585,7 @@ def get_possible_actions(char_id: str):
             {"type": "explore", "target": p["id"], "name": p["name"], "danger": p["danger_level"]}
             for p in nearby_pois
         ],
+        "travel": travel_options,
         "objects": ["pick_up", "drop", "use"],
     }
 
@@ -585,6 +608,9 @@ def interact():
     if actor is None or target is None:
         return jsonify({"status": "error", "message": "Character not found"}), 404
 
+    actor_town_name = world.towns[actor.town].name if actor.town in world.towns else "the wilderness"
+    target_town_name = world.towns[target.town].name if target.town in world.towns else "the wilderness"
+
     interaction_result = {
         "actor": char_id,
         "target": target_id,
@@ -593,8 +619,8 @@ def interact():
         "message": f"{actor.name} {action_type}s with {target.name}",
     }
 
-    actor.memories.append(f"{action_type.capitalize()} with {target.name}")
-    target.memories.append(f"{actor.name} {action_type}s with you")
+    actor.memories.append(f"{action_type.capitalize()} with {target.name} from {target_town_name}")
+    target.memories.append(f"{actor.name} from {actor_town_name} {action_type}s with you")
 
     return jsonify({"status": "success", "data": interaction_result})
 
