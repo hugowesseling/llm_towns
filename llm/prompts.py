@@ -54,3 +54,25 @@ def build_plan_prompt(goal: Dict[str, object], villager: Dict[str, object], cont
             "Produce a deterministic action plan that accomplishes the goal."
         )},
     ]
+
+
+SYSTEM_STORY_PROMPT = (
+    "You are a medieval fantasy villager. Tell your life story in first person, "
+    "drawing from your recorded memories. Write it as a short narrative, "
+    "not a list. Weave the events into a coherent story with a beginning, "
+    "middle, and end. Include your feelings, observations about your town "
+    "and fellow villagers, and reflect on how things have changed. Keep it "
+    "concise — around 150-300 words."
+)
+
+def build_story_prompt(villager: Dict[str, object]) -> List[Dict[str, str]]:
+    memories_text = "\n".join(f"- {m}" for m in villager.get("memories", []))
+    return [
+        {"role": "system", "content": SYSTEM_STORY_PROMPT},
+        {"role": "user", "content": (
+            f"You are {villager['name']}, a villager of {villager['town']}. "
+            f"You are a {villager.get('profession', 'villager')}.\n\n"
+            f"Your memories:\n{memories_text}\n\n"
+            "Tell your story in first person."
+        )},
+    ]

@@ -18,7 +18,7 @@ import threading
 import time
 
 from llm.brain import LLMBrain, OpenAIChatClient
-from llm.prompts import build_goal_prompt
+from llm.prompts import build_goal_prompt, build_story_prompt
 from simulation.actions import Goal
 from simulation.market import Market
 from simulation.planner import Planner
@@ -369,6 +369,45 @@ def add_character_history(char_id: str):
     villager.memories.append(event)
 
     return jsonify({"status": "success", "data": villager.summary()})
+
+
+@app.route('/api/character/<char_id>/story', methods=['GET'])
+def get_character_story(char_id: str):
+    """Generate a first-person story from a villager's memories."""
+    villager = scheduler.get_villager(char_id)
+    if villager is None:
+        return jsonify({"status": "error", "message": "Character not found"}), 404
+
+    if llm_brain is None:
+        return jsonify({
+            "status": "error",
+            "message": "LLM not configured",
+            "memories": villager.memories,
+        })
+
+    villager_dict = villager.summary()
+    villager_dict["memories"] = villager.memories
+
+    messages = build_story_prompt(villager_dict)
+    try:
+        story = llm_brain.chat(
+            system=messages[0]["content"],
+            user=messages[1]["content"],
+            temperature=0.8,
+            max_tokens=500,
+        )
+        if not story:
+            story = "No story generated."
+    except Exception as e:
+        story = f"Failed to generate story: {str(e)}"
+
+    return jsonify({
+        "status": "success",
+        "data": {
+            "villager": villager_dict,
+            "story": story,
+        },
+    })
 
 
 # ── Simulation endpoints ────────────────────────────────────────────────

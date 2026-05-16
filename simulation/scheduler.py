@@ -32,12 +32,17 @@ class SimulationScheduler:
         self.villagers[villager.id] = villager
 
     def find_path(self, start: Tuple[int, int], goal: Tuple[int, int]) -> List[Tuple[int, int]]:
-        """Simple A* pathfinding on world grid."""
+        """A* pathfinding with road preference."""
         if not self.world:
             return []  # No world, no path
 
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+        def tile_cost(x, y):
+            if self.world and self.world.get_tile_type(x, y) == 7:  # ROAD
+                return 0.4
+            return 1.0
 
         open_set = []
         heapq.heappush(open_set, (0, start))
@@ -58,7 +63,8 @@ class SimulationScheduler:
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                 neighbor = (current[0] + dx, current[1] + dy)
                 if self.world.is_walkable(neighbor[0], neighbor[1]):
-                    tentative_g = g_score[current] + 1
+                    step_cost = tile_cost(neighbor[0], neighbor[1])
+                    tentative_g = g_score[current] + step_cost
                     if neighbor not in g_score or tentative_g < g_score[neighbor]:
                         came_from[neighbor] = current
                         g_score[neighbor] = tentative_g
