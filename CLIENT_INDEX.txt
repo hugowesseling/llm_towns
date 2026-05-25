@@ -1,0 +1,238 @@
+════════════════════════════════════════════════════════════════════════════
+  LLM TOWNS VISUALIZATION CLIENT - FILE INDEX & STRUCTURE
+════════════════════════════════════════════════════════════════════════════
+
+PROJECT ROOT: /home/hugo/git/llm_towns.worktrees/agents-curly-marmot/
+
+📂 GETTING STARTED (Read these first)
+────────────────────────────────────────────────────────────────────────────
+  QUICK_START.txt              👈 START HERE - 2-minute quick reference
+  CLIENT_SUMMARY.md            📋 Technical overview & architecture
+  CLIENT_GUIDE.md              📖 Comprehensive user guide
+
+
+🚀 RUNNING THE CLIENT
+────────────────────────────────────────────────────────────────────────────
+  launch.py                    🔧 Convenient launcher for server & client
+                                 Usage: python launch.py server
+                                        python launch.py client
+                                        python launch.py test
+
+
+📁 CLIENT PACKAGE: /client/
+────────────────────────────────────────────────────────────────────────────
+
+  📄 Core Application:
+    viewer.py (480 lines)      🎮 Main visualization app
+                                 • PyGame-based rendering
+                                 • Map viewport with scrolling
+                                 • Character/town selection
+                                 • Info sidebar display
+                                 • Real-time animation (30 FPS)
+
+  📄 Graphics Engine:
+    tileset.py (210 lines)     🎨 Procedural tile rendering
+                                 • 11 tile types with unique visuals
+                                 • Tile surface caching
+                                 • Villager sprite generation
+                                 • UI overlay creation
+
+  📄 API Communication:
+    api_client.py (100 lines)  🌐 HTTP REST client
+                                 • Connect to Flask server
+                                 • Fetch world data
+                                 • Get character positions
+                                 • Retrieve town information
+                                 • Error handling & timeout
+
+  📄 Utilities:
+    test_connection.py (80 lines) 🔍 Connection validation
+                                 • Test server connectivity
+                                 • Diagnostic health checks
+                                 • Verify data available
+                                 • Quick troubleshooting
+
+    __init__.py                 📦 Python package marker
+    README.md                   📚 Client-specific documentation
+
+
+🌍 FEATURES AT A GLANCE
+────────────────────────────────────────────────────────────────────────────
+
+  Map Visualization:
+    ✓ Scrollable 2D world grid (50×50 tiles)
+    ✓ 11 terrain types (grass, forest, water, mountains, sand, snow, 
+      swamp, roads, buildings, houses, town squares)
+    ✓ Procedural tile graphics (no external sprite sheets)
+    ✓ Real-time villager positions
+    ✓ Town markers with entry points visible
+
+  Interactivity:
+    ✓ Arrow key scrolling (3-tile increments)
+    ✓ Right-click pan (smooth dragging)
+    ✓ Left-click selection (villagers & towns)
+    ✓ Pause/resume (Space bar)
+    ✓ Home key reset
+
+  Character Display:
+    ✓ Villagers shown as red circles
+    ✓ Click to see: position, hunger, energy, social needs, current goal
+    ✓ Real-time movement tracking
+
+  Town Display:
+    ✓ Towns shown as gold stars
+    ✓ Click to see: name, population, economy, culture, description
+    ✓ Entry/exit points visible through tile layout
+
+
+🎮 KEYBOARD CONTROLS SUMMARY
+────────────────────────────────────────────────────────────────────────────
+  ↑ ↓ ← →         Scroll map (3-tile steps)
+  Right-click+drag Pan map (smooth)
+  Home             Center map at top-left
+  Left-click       Select entity (villager or town)
+  C                Deselect
+  Space            Pause/resume updates
+  ESC              Exit application
+
+
+📊 WINDOW LAYOUT
+────────────────────────────────────────────────────────────────────────────
+  Total: 1200×800 pixels
+  
+  Left:  950px wide  │ Right: 250px wide
+  Map viewport       │ Info sidebar
+  - Scrollable tiles │ - Selected entity details
+  - Villagers        │ - Needs/stats display
+  - Town markers     │ - Control reference
+
+
+🗺️ TILE TYPE REFERENCE
+────────────────────────────────────────────────────────────────────────────
+  ID  Name            Color         Pattern
+  ─────────────────────────────────────────────────────────────────────────
+  0   GRASS           Forest Green  Grass tufts (dots)
+  1   FOREST          Dark Green    Tree peak
+  2   WATER           Dodger Blue   Wave pattern (lines)
+  3   MOUNTAIN        Saddle Brown  Mountain peak
+  4   SAND            Bisque        Ripple arcs
+  5   SNOW            White         Snowflake dots
+  6   SWAMP           Dark Khaki    Vegetation circles
+  7   ROAD            Light Gray    Center line
+  8   BUILDING        Maroon        Brick grid
+  9   HOUSE           Chocolate     Roof triangle
+  10  TOWN_SQUARE     Gold          Cross grid
+
+
+⚙️ ARCHITECTURE COMPONENTS
+────────────────────────────────────────────────────────────────────────────
+
+  SimulationClient (main class)
+    ├─ __init__               Initialize pygame, UI, fonts
+    ├─ _connect_and_load      Fetch initial world data
+    ├─ _refresh_world_data    Poll API for updates
+    ├─ _update_loop           Background thread worker
+    ├─ handle_events          Process keyboard/mouse input
+    ├─ _select_at_position    Click detection logic
+    ├─ draw                   Main render function
+    ├─ _draw_map              Render tiles & entities
+    ├─ _draw_sidebar          Render info panel
+    └─ run                    Main game loop
+
+  WorldViewport (viewport class)
+    ├─ scroll                 Update viewport position
+    ├─ screen_to_world        Convert screen coords → world
+    ├─ world_to_screen        Convert world coords → screen
+    └─ is_visible             Check if tile in viewport
+
+  APIClient (network class)
+    ├─ health_check           Test server connectivity
+    ├─ get_world_grid         Fetch terrain grid
+    ├─ get_characters         Fetch villager list
+    ├─ get_towns              Fetch town list
+    └─ [6+ more API methods]
+
+  TilesetCache (graphics class)
+    └─ get_tile               Fetch/cache tile surface
+
+
+📈 PERFORMANCE METRICS
+────────────────────────────────────────────────────────────────────────────
+  Render FPS:        30 FPS (smooth animation)
+  Update Interval:   1 second (API polling)
+  Viewport Size:     950×800 pixels (~30×25 tiles)
+  Tile Size:         32×32 pixels
+  Memory Usage:      ~50-100 MB typical
+  Threading:         1 background update thread
+
+
+🔧 TECHNICAL STACK
+────────────────────────────────────────────────────────────────────────────
+  • Language:        Python 3.8+
+  • Graphics:        PyGame 2.5.2
+  • Networking:      Requests 2.31
+  • Rendering:       Procedural graphics (no assets)
+  • Threading:       Python threading module
+  • Architecture:    Object-oriented, event-driven
+
+
+🚀 QUICK START COMMAND
+────────────────────────────────────────────────────────────────────────────
+
+Terminal 1:
+  cd /home/hugo/git/llm_towns.worktrees/agents-curly-marmot
+  python launch.py server
+
+Terminal 2:
+  cd /home/hugo/git/llm_towns.worktrees/agents-curly-marmot
+  python launch.py client
+
+
+📚 DOCUMENTATION FILES
+────────────────────────────────────────────────────────────────────────────
+  QUICK_START.txt              1-page reference card
+  CLIENT_SUMMARY.md            Technical deep-dive (~7KB)
+  CLIENT_GUIDE.md              User guide with extensions (~7KB)
+  client/README.md             Client module documentation (~3KB)
+  CLIENT_INDEX.txt             This file
+
+
+🛠️ EXTENSIBILITY
+────────────────────────────────────────────────────────────────────────────
+  Easy to add:
+    ✓ More info panels (inventory, relationships, events)
+    ✓ Zoom controls (modify TILE_SIZE dynamically)
+    ✓ Heatmaps (hunger, energy, social distribution)
+    ✓ Minimap (overview of entire world)
+    ✓ Character actions (send villagers to locations)
+    ✓ Event timeline (display past events)
+    ✓ Custom tile appearance (edit create_tile_surface)
+    ✓ Layer toggling (hide/show entities)
+
+
+✅ CHECKLIST: WHAT'S INCLUDED
+────────────────────────────────────────────────────────────────────────────
+  ✓ Complete visualization client
+  ✓ Procedural graphics (no sprite sheets needed)
+  ✓ API client library
+  ✓ Connection validation script
+  ✓ Launcher utility
+  ✓ Comprehensive documentation (4 guides)
+  ✓ Quick reference card
+  ✓ Example controls & usage
+  ✓ Troubleshooting guide
+  ✓ Architecture documentation
+
+
+❓ NEED HELP?
+────────────────────────────────────────────────────────────────────────────
+  1. Read QUICK_START.txt (this directory)
+  2. Read CLIENT_GUIDE.md for full details
+  3. Run: python client/test_connection.py
+  4. Check Flask server logs: python app.py
+  5. Review CLIENT_SUMMARY.md for technical details
+
+
+════════════════════════════════════════════════════════════════════════════
+Ready to explore LLM Towns! Launch with: python launch.py client
+════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,106 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║              LLM TOWNS - VISUALIZATION CLIENT QUICK START                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📋 SETUP
+────────────────────────────────────────────────────────────────────────────
+
+1. Make sure pygame and requests are installed:
+   pip install pygame requests
+
+2. Navigate to the project directory:
+   cd /home/hugo/git/llm_towns.worktrees/agents-curly-marmot
+
+
+🚀 LAUNCH (Choose one method)
+────────────────────────────────────────────────────────────────────────────
+
+METHOD A: Using Launch Helper (Recommended)
+──────────────────────────────────────────
+Terminal 1:
+  python launch.py server
+
+Terminal 2:
+  python launch.py client
+
+
+METHOD B: Manual Launch
+──────────────────────
+Terminal 1 (Start Flask server):
+  python app.py
+
+Terminal 2 (Optional - test connection):
+  cd client
+  python test_connection.py
+
+Terminal 2 (Start visualization):
+  cd client
+  python viewer.py
+
+
+🎮 CONTROLS (In the Visualization Window)
+────────────────────────────────────────────────────────────────────────────
+
+Navigation:
+  ↑ ↓ ← →     Scroll map
+  Right-drag  Pan smoothly
+  Home        Reset to top-left
+
+Selection & Info:
+  Left-click  Select villager or town
+  C           Deselect
+
+Control:
+  Space       Pause/resume updates
+  ESC         Exit
+
+
+📊 UI LAYOUT
+────────────────────────────────────────────────────────────────────────────
+
+Left (950px):   Map viewport with tiles, villagers, towns
+Right (250px):  Character/town info & control reference
+
+
+🗺️ TILE TYPES
+────────────────────────────────────────────────────────────────────────────
+
+0 = GRASS (green)              7 = ROAD (gray)
+1 = FOREST (dark green)        8 = BUILDING (maroon)
+2 = WATER (blue)               9 = HOUSE (brown)
+3 = MOUNTAIN (brown)          10 = TOWN_SQUARE (gold)
+4 = SAND (tan)
+5 = SNOW (white)
+6 = SWAMP (dark khaki)
+
+Red circles   = Villagers
+Gold stars    = Town centers
+Yellow border = Selected entity
+
+
+❓ TROUBLESHOOTING
+────────────────────────────────────────────────────────────────────────────
+
+Server won't start:
+  • Check Python version (3.8+ required)
+  • Check requirements.txt: pip install -r requirements.txt
+
+Client shows "Cannot connect":
+  • Make sure server is running: python app.py
+  • Run: cd client && python test_connection.py
+
+Map is blank:
+  • Try pressing Home to reset viewport
+  • Use arrow keys to scroll around
+
+
+📖 MORE INFORMATION
+────────────────────────────────────────────────────────────────────────────
+
+For detailed information, read:
+  • CLIENT_GUIDE.md       - Full user guide & extensions
+  • CLIENT_SUMMARY.md     - Technical details & architecture
+  • client/README.md      - Client-specific documentation
+
+
+✨ ENJOY EXPLORING LLM TOWNS! ✨
