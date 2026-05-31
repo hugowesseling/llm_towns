@@ -9,6 +9,7 @@ import sys
 from typing import Dict, List, Tuple, Optional, Any
 import threading
 import time
+import traceback
 
 from api_client import APIClient
 from tileset import TilesetCache, create_villager_sprite, create_selected_overlay, TILE_SIZE
@@ -135,12 +136,68 @@ class SimulationClient:
         # Get characters
         chars = self.api.get_characters()
         if chars:
-            self.villagers = {c.get("id"): c for c in chars}
+            # Normalize character data: ensure positions are ints and needs are numeric
+            norm_chars = {}
+            for c in chars:
+                cid = c.get("id")
+                if not cid:
+                    continue
+                # Normalize position
+                pos = c.get("position")
+                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                    try:
+                        pos = [int(pos[0]), int(pos[1])]
+                    except Exception:
+                        pos = None
+                else:
+                    pos = None
+                c["position"] = pos
+
+                # Normalize needs
+                needs = c.get("needs") or {}
+                if isinstance(needs, dict):
+                    for k in ("hunger", "energy", "social"):
+                        val = needs.get(k, 0)
+                        try:
+                            needs[k] = float(val)
+                        except Exception:
+                            needs[k] = 0.0
+                else:
+                    needs = {"hunger": 0.0, "energy": 0.0, "social": 0.0}
+                c["needs"] = needs
+
+                norm_chars[cid] = c
+
+            self.villagers = norm_chars
         
         # Get towns
         towns = self.api.get_towns()
         if towns:
-            self.towns = {t.get("id"): t for t in towns}
+            # Normalize town data: ensure positions are ints and population numeric
+            norm_towns = {}
+            for t in towns:
+                tid = t.get("id")
+                if not tid:
+                    continue
+                pos = t.get("position")
+                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                    try:
+                        pos = [int(pos[0]), int(pos[1])]
+                    except Exception:
+                        pos = None
+                else:
+                    pos = None
+                t["position"] = pos
+
+                pop = t.get("population", 0)
+                try:
+                    t["population"] = int(pop)
+                except Exception:
+                    t["population"] = 0
+
+                norm_towns[tid] = t
+
+            self.towns = norm_towns
     
     def _update_loop(self):
         """Background thread for updating world state."""
@@ -412,6 +469,8 @@ def main():
         client = SimulationClient()
         client.run()
     except Exception as e:
+        print("Call stack:")
+        traceback.print_exc()
         print(f"Fatal error: {e}")
         sys.exit(1)
 
