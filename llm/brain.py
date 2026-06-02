@@ -123,8 +123,11 @@ class OpenAIChatClient:
             return ""
         message = choices[0].get("message") or {}
         content = message.get("content", "")
+        
+        # llama-cpp may put content in reasoning_content when content is empty
         if not content:
             content = message.get("reasoning_content", "")
+        
         return content.strip()
 
     def get_text(self, completion: Dict[str, Any]) -> str:

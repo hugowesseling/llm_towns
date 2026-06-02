@@ -333,7 +333,7 @@ class WorldGenerator:
                 system=system_prompt,
                 user=user_prompt,
                 temperature=0.85,
-                max_tokens=400,
+                max_tokens=1500,
             )
         except Exception:
             return {

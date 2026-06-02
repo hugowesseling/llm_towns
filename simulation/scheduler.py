@@ -270,7 +270,7 @@ class SimulationScheduler:
             goal_data = self.llm_brain.create_chat_json(
                 messages=messages,
                 temperature=0.5,
-                max_tokens=200,
+                max_tokens=1000,
             )
             if isinstance(goal_data, dict) and "goal" in goal_data:
                 goal = Goal(

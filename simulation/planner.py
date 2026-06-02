@@ -56,7 +56,7 @@ class Planner:
         plan_data = self.llm_brain.create_chat_json(
             messages=messages,
             temperature=0.5,
-            max_tokens=400,
+            max_tokens=2000,
         )
 
         if not isinstance(plan_data, dict):
