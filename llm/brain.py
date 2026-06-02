@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 
 
-DEFAULT_OPENAI_BASE = "https://api.openai.com/v1"
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_BASE = "http://192.168.1.117:8080/v1"
+DEFAULT_MODEL = "models/Qwen_Qwen3.6-35B-A3B-Q2_K_L.gguf"
 DEFAULT_TIMEOUT = 60
 
 
@@ -28,7 +28,7 @@ class OpenAIChatClient:
         self.organization = organization or os.getenv("OPENAI_ORGANIZATION")
 
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY is required for OpenAIChatClient")
+            self.api_key = "none"
 
     def _headers(self) -> Dict[str, str]:
         headers = {

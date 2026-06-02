@@ -144,7 +144,12 @@ class SimulationClient:
                     continue
                 # Normalize position
                 pos = c.get("position")
-                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                if isinstance(pos, dict):
+                    try:
+                        pos = [int(pos["x"]), int(pos["y"])]
+                    except Exception:
+                        pos = None
+                elif isinstance(pos, (list, tuple)) and len(pos) >= 2:
                     try:
                         pos = [int(pos[0]), int(pos[1])]
                     except Exception:
@@ -356,13 +361,19 @@ class SimulationClient:
         sidebar_x = MAP_VIEWPORT_WIDTH
         sidebar_width = WINDOW_WIDTH - MAP_VIEWPORT_WIDTH
         
-        # Draw selected character/town info
-        info_y = 10
+      # Draw villager stats
+        stats_text = f"Villagers: {len(self.villagers)}"
+        visible_count = sum(1 for c in self.villagers.values() if c.get("position") and 
+                           self.viewport.is_visible(c["position"][0], c["position"][1]))
+        stats_text += f" | Visible: {visible_count}"
+        self._draw_text(stats_text, sidebar_x + 10, 10, self.font_large, (100, 255, 100))
         
+        # Draw selected character/town info
+        info_y = 45
         if self.selected_character and self.selected_character in self.villagers:
             char = self.villagers[self.selected_character]
             self._draw_text(f"Character: {self.selected_character}", sidebar_x + 10, info_y, 
-                          self.font_large, (255, 200, 0))
+                           self.font_large, (255, 200, 0))
             info_y += 30
             
             self._draw_text(f"Pos: {char.get('position')}", sidebar_x + 10, info_y)
