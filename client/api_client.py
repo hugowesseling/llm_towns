@@ -105,3 +105,13 @@ class APIClient:
         except Exception as e:
             print(f"Failed to get sim status: {e}")
             return None
+    
+    def get_villager_detail(self, villager_id: str) -> Optional[Dict[str, Any]]:
+        """Get detailed villager info including goal, plan, memories."""
+        try:
+            resp = requests.get(f"{self.base_url}/api/villager/{villager_id}/summary", timeout=self.timeout)
+            resp.raise_for_status()
+            return resp.json().get("data")
+        except Exception as e:
+            print(f"Failed to get villager detail for {villager_id}: {e}")
+            return None

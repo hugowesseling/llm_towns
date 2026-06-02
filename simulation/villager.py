@@ -65,7 +65,7 @@ class Villager:
         self.current_plan_id = None
 
     def summary(self) -> Dict[str, object]:
-        return {
+        data: Dict[str, object] = {
             "id": self.id,
             "name": self.name,
             "town": self.town,
@@ -80,4 +80,14 @@ class Villager:
             "current_goal_id": self.current_goal_id,
             "current_plan_id": self.current_plan_id,
             "relationships": self.relationships,
+            "memories": self.memories,
+            "cognition": {
+                "current_goal_id": self.cognition.current_goal_id,
+                "current_plan_id": self.cognition.current_plan_id,
+                "last_reactive_tick": self.cognition.last_reactive_tick,
+                "last_tactical_tick": self.cognition.last_tactical_tick,
+                "last_reflective_tick": self.cognition.last_reflective_tick,
+                "last_thought_tick": self.cognition.last_thought_tick,
+            },
         }
+        return data

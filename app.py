@@ -508,7 +508,37 @@ def get_villager_summary(villager_id: str):
     if villager is None:
         return jsonify({"status": "error", "message": "Villager not found"}), 404
 
-    return jsonify({"status": "success", "data": villager.summary()})
+    summary = villager.summary()
+
+    # Resolve goal description
+    goal_id = summary.get("current_goal_id")
+    if goal_id and goal_id in scheduler.goals:
+        goal = scheduler.goals[goal_id]
+        summary["current_goal"] = goal.description
+        summary["goal_priority"] = goal.priority
+        summary["goal_created_tick"] = goal.created_tick
+
+    # Resolve plan details
+    plan_id = summary.get("current_plan_id")
+    if plan_id and plan_id in scheduler.plans:
+        plan = scheduler.plans[plan_id]
+        summary["plan_id"] = plan.id
+        summary["plan_actions"] = [
+            {"type": a.type, "state": a.state.value, "progress": a.progress_ticks,
+             "duration": a.duration_ticks, "target": a.metadata.get("target", a.metadata.get("destination", ""))}
+            for a in plan.actions
+        ]
+        current_action = plan.get_current_action()
+        if current_action:
+            summary["plan_current_action"] = {
+                "type": current_action.type,
+                "state": current_action.state.value,
+                "progress": current_action.progress_ticks,
+                "duration": current_action.duration_ticks,
+                "target": current_action.metadata.get("target", current_action.metadata.get("destination", "")),
+            }
+
+    return jsonify({"status": "success", "data": summary})
 
 
 @app.route('/api/villager/<villager_id>/suggest-goal', methods=['POST'])

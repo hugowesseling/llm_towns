@@ -104,6 +104,9 @@ class SimulationClient:
         self.last_update = 0
         self.update_interval = 1.0  # seconds
         
+        # Villager detail cache (fetched separately from list)
+        self.villager_details: Dict[str, Dict[str, Any]] = {}
+        
         # Load initial data
         self._connect_and_load()
     
@@ -209,6 +212,9 @@ class SimulationClient:
         while self.update_thread_running:
             try:
                 self._refresh_world_data()
+                # Refresh villager detail if something is selected
+                if self.selected_character:
+                    self._fetch_villager_detail(self.selected_character)
                 time.sleep(self.update_interval)
             except Exception as e:
                 print(f"Update error: {e}")
@@ -251,10 +257,11 @@ class SimulationClient:
                     self.viewport.scroll_x = 0
                     self.viewport.scroll_y = 0
                 
-                # Deselect with C
+               # Deselect with C
                 elif event.key == pygame.K_c:
                     self.selected_character = None
                     self.selected_town = None
+                    self.villager_details.clear()
             
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click
@@ -279,6 +286,7 @@ class SimulationClient:
             if char_data.get("position") == [world_x, world_y]:
                 self.selected_character = char_id
                 self.selected_town = None
+                self._fetch_villager_detail(char_id)
                 return
         
         # Check for town center at this position
@@ -287,11 +295,19 @@ class SimulationClient:
             if town_pos == [world_x, world_y]:
                 self.selected_town = town_id
                 self.selected_character = None
+                self.villager_details.pop(self.selected_town, None)
                 return
         
         # Nothing selected
         self.selected_character = None
         self.selected_town = None
+        self.villager_details.clear()
+    
+    def _fetch_villager_detail(self, villager_id: str):
+        """Fetch detailed villager info from API."""
+        detail = self.api.get_villager_detail(villager_id)
+        if detail:
+            self.villager_details[villager_id] = detail
     
     def draw(self):
         """Draw the complete scene."""
@@ -368,29 +384,95 @@ class SimulationClient:
         stats_text += f" | Visible: {visible_count}"
         self._draw_text(stats_text, sidebar_x + 10, 10, self.font_large, (100, 255, 100))
         
-        # Draw selected character/town info
+       # Draw selected character/town info
         info_y = 45
         if self.selected_character and self.selected_character in self.villagers:
             char = self.villagers[self.selected_character]
-            self._draw_text(f"Character: {self.selected_character}", sidebar_x + 10, info_y, 
+            detail = self.villager_details.get(self.selected_character, {})
+            
+            # Name and profession
+            self._draw_text(f"Character: {char.get('name', self.selected_character)}", sidebar_x + 10, info_y,
                            self.font_large, (255, 200, 0))
-            info_y += 30
-            
-            self._draw_text(f"Pos: {char.get('position')}", sidebar_x + 10, info_y)
             info_y += 25
             
+            # Position
+            pos = char.get("position")
+            if pos:
+                if isinstance(pos, dict):
+                    x, y = pos['x'], pos['y']
+                else:
+                    x, y = pos[0], pos[1]
+                self._draw_text(f"Position: ({x}, {y})", sidebar_x + 10, info_y)
+                info_y += 20
+            
+            # Town and profession
+            self._draw_text(f"Town: {char.get('town', '?')} | {char.get('profession', '?')}", sidebar_x + 10, info_y)
+            info_y += 25
+            
+            # Needs
             needs = char.get("needs", {})
-            self._draw_text(f"Hunger: {needs.get('hunger', 0):.1f}", sidebar_x + 10, info_y)
+            self._draw_text(f"Hunger: {needs.get('hunger', 0):.0f}/100", sidebar_x + 10, info_y)
+            info_y += 18
+            self._draw_text(f"Energy: {needs.get('energy', 0):.0f}/100", sidebar_x + 10, info_y)
+            info_y += 18
+            self._draw_text(f"Social: {needs.get('social', 0):.0f}/100", sidebar_x + 10, info_y)
             info_y += 20
-            self._draw_text(f"Energy: {needs.get('energy', 0):.1f}", sidebar_x + 10, info_y)
-            info_y += 20
-            self._draw_text(f"Social: {needs.get('social', 0):.1f}", sidebar_x + 10, info_y)
-            info_y += 25
             
-            goal = char.get("current_goal")
+            # Inventory
+            inventory = char.get("inventory", {})
+            if inventory:
+                self._draw_text(f"Inventory: {inventory}", sidebar_x + 10, info_y)
+                info_y += 20
+            
+            # Goal
+            goal = detail.get("current_goal")
             if goal:
+                priority = detail.get("goal_priority", "?")
                 self._draw_text(f"Goal: {goal}", sidebar_x + 10, info_y, wrap_width=200)
-                info_y += 50
+                info_y += 20
+                self._draw_text(f"Priority: {priority}", sidebar_x + 10, info_y)
+                info_y += 20
+            
+            # Plan
+            plan_current = detail.get("plan_current_action")
+            if plan_current:
+                self._draw_text(f"Doing: {plan_current.get('type', '?')} {plan_current.get('target', '')}", 
+                               sidebar_x + 10, info_y, wrap_width=200, color=(100, 255, 100))
+                info_y += 20
+                progress = plan_current.get("progress", 0)
+                duration = plan_current.get("duration", 0)
+                state = plan_current.get("state", "?")
+                self._draw_text(f"State: {state} ({progress}/{duration})", sidebar_x + 10, info_y)
+                info_y += 20
+            
+            # Full plan
+            plan_actions = detail.get("plan_actions")
+            if plan_actions:
+                self._draw_text(f"Plan ({len(plan_actions)} actions):", sidebar_x + 10, info_y)
+                info_y += 18
+                for i, action in enumerate(plan_actions):
+                    action_text = f"  {i+1}. [{action['state']}] {action['type']} {action['target']}"
+                    self._draw_text(action_text, sidebar_x + 10, info_y)
+                    info_y += 18
+                    if i >= 3:
+                        break  # Limit display
+            
+            # Memories
+            memories = detail.get("memories", [])
+            if memories:
+                self._draw_text(f"Memories ({len(memories)}):", sidebar_x + 10, info_y, 
+                               color=(150, 150, 255))
+                info_y += 18
+                for mem in memories[-5:]:  # Show last 5
+                    self._draw_text(f"  {mem}", sidebar_x + 10, info_y, wrap_width=200)
+                    info_y += 18
+            
+            # Relationships
+            relationships = char.get("relationships", {})
+            if relationships:
+                rel_text = ", ".join(f"{k}: {v}" for k, v in relationships.items())
+                self._draw_text(f"Relationships: {rel_text}", sidebar_x + 10, info_y)
+                info_y += 25
         
         elif self.selected_town and self.selected_town in self.towns:
             town = self.towns[self.selected_town]
