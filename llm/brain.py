@@ -67,6 +67,7 @@ class OpenAIChatClient:
             payload["stop"] = stop
         payload.update(kwargs)
 
+        print(f"\n[LLM] >>> {json.dumps(payload, indent=2)}")
         response = requests.post(
             self._endpoint("chat/completions"),
             headers=self._headers(),
@@ -74,7 +75,10 @@ class OpenAIChatClient:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        reply = self.get_message_text(result)
+        print(f"[LLM] <<< {reply}\n")
+        return result
 
     def create_text_completion(
         self,
@@ -101,6 +105,7 @@ class OpenAIChatClient:
             payload["stop"] = stop
         payload.update(kwargs)
 
+        print(f"\n[LLM] >>> {json.dumps(payload, indent=2)}")
         response = requests.post(
             self._endpoint("completions"),
             headers=self._headers(),
@@ -108,14 +113,19 @@ class OpenAIChatClient:
             timeout=self.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        print(f"[LLM] <<< {self.get_text(result)}\n")
+        return result
 
     def get_message_text(self, completion: Dict[str, Any]) -> str:
         choices = completion.get("choices", [])
         if not choices:
             return ""
         message = choices[0].get("message") or {}
-        return message.get("content", "")
+        content = message.get("content", "")
+        if not content:
+            content = message.get("reasoning_content", "")
+        return content.strip()
 
     def get_text(self, completion: Dict[str, Any]) -> str:
         choices = completion.get("choices", [])
@@ -132,6 +142,8 @@ class OpenAIChatClient:
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> Any:
+        print(f"\n[LLM JSON >>>] system={messages[0]['content'][:60] if messages else 'N/A'}")
+        print(f"[LLM JSON >>>] user={messages[-1]['content'][:60] if len(messages) > 1 else 'N/A'}...")
         completion = self.create_chat_completion(
             messages=messages,
             model=model,
@@ -140,10 +152,11 @@ class OpenAIChatClient:
             **kwargs,
         )
         raw_text = self.get_message_text(completion)
+        print(f"[LLM JSON <<<] raw={repr(raw_text[:300])}\n")
         try:
             return json.loads(raw_text)
         except json.JSONDecodeError:
-            raise ValueError("LLM response is not valid JSON")
+            raise ValueError(f"LLM response is not valid JSON: {raw_text[:300]}")
 
 
 class LLMBrain:

@@ -16,7 +16,7 @@
 #   6. Cleans up server on exit
 #
 ################################################################################
-set -x
+
 set -e
 
 # Colors for output
@@ -189,11 +189,10 @@ start_server() {
     fi
     
     cd "$PROJECT_DIR"
-    python3 "$SERVER_SCRIPT" > /tmp/llm_towns_server.log 2>&1 &
+    python3 "$SERVER_SCRIPT" &
     SERVER_PID=$!
     
     print_success "Server started (PID: $SERVER_PID)"
-    print_info "Server logs: /tmp/llm_towns_server.log"
     
     if ! wait_for_server; then
         print_error "Server failed to start. Check logs:"
